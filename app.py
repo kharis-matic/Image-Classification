@@ -17,7 +17,7 @@ st.set_page_config(
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 FIXED_SIZE = (150, 150)
-CLASS_NAMES = ['glacier', 'mountain']
+CLASS_NAMES = ['mountain', 'glacier']
 
 # ── Helper Functions (identical to notebook) ────────────────────────────────────
 
@@ -281,10 +281,9 @@ if uploaded_file is not None:
             ).reshape(1, -1)
 
             # Preprocess
-            feat_imp   = artifacts['imputer'].transform(feat_vector)
-            feat_sc    = artifacts['scaler'].transform(feat_imp)
-            feat_stat  = artifacts['selector_stat'].transform(feat_sc)
-            feat_sel   = feat_stat[:, artifacts['top_idx']]
+            feat_imp  = artifacts['imputer'].transform(feat_vector)
+            feat_sc   = artifacts['scaler'].transform(feat_imp)      # 408 features
+            feat_sel  = feat_sc[:, artifacts['top_idx']]     
 
             # Predict
             model      = artifacts['model']
@@ -293,19 +292,42 @@ if uploaded_file is not None:
 
             # Confidence (if model supports predict_proba)
             confidence = None
+            confidence_label = None
+
             if hasattr(model, 'predict_proba'):
-                proba      = model.predict_proba(feat_sel)[0]
+                proba = model.predict_proba(feat_sel)[0]
                 confidence = proba[prediction]
+                confidence_label = "Probability"
+            elif hasattr(model, 'decision_function'):
+                decision = model.decision_function(feat_sel)[0]
+                # Convert decision score to 0-1 range using sigmoid
+                confidence = float(1 / (1 + np.exp(-abs(decision))))
+                confidence_label = "Confidence Score (sigmoid)"
 
         # Results
         emoji = "🧊" if label_name == "glacier" else "⛰️"
         st.markdown(f"### Prediction: {emoji} `{label_name.upper()}`")
 
         if confidence is not None:
-            st.metric("Confidence", f"{confidence * 100:.1f}%")
+            st.metric(confidence_label, f"{confidence * 100:.1f}%")
+            
+            # Color-coded progress bar via markdown
+            bar_color = "#4FC3F7" if label_name == "glacier" else "#8D6E63"
             st.progress(float(confidence))
+            
+            # Show both class probabilities if available
+            if hasattr(model, 'predict_proba'):
+                st.markdown("**Class Probabilities:**")
+                for i, cls in enumerate(CLASS_NAMES):
+                    emoji_cls = "🧊" if cls == "glacier" else "⛰️"
+                    st.write(f"{emoji_cls} {cls.capitalize()}: `{proba[i]*100:.1f}%`")
+                    st.progress(float(proba[i]))
+            else:
+                st.markdown("**Decision confidence:**")
+                st.write(f"{emoji} {label_name.capitalize()}: `{confidence*100:.1f}%`")
+                st.progress(float(confidence))
         else:
-            st.info("This model does not provide probability estimates.")
+            st.info("This model does not support confidence estimation.")
 
         st.divider()
 
